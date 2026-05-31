@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run system backtest
-        run: python src/system_backtest.py
+        run: python src/system_backtest_v2.py
 
       - name: Upload backtest output
         uses: actions/upload-artifact@v4
