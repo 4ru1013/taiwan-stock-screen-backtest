@@ -72,17 +72,21 @@ def load_holdings(file_info: dict) -> pd.DataFrame:
     etf = file_info["etf"]
     df = pd.read_csv(StringIO(get_text(file_info["url"])), dtype={"code": "string"})
     df.columns = [str(c).strip().lower().replace("\ufeff", "") for c in df.columns]
-    required = {"code", "name", "weight"}
+
+    required = {"code", "name"}
     missing = required - set(df.columns)
     if missing:
         raise RuntimeError(f"Missing columns in {file_info['url']}: {missing}; columns={df.columns.tolist()}")
+
     df["code"] = df["code"].astype(str).str.replace(".0", "", regex=False).str.strip()
     df["name"] = df["name"].astype(str).str.strip()
-    df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
-    df["shares"] = pd.to_numeric(df["shares"], errors="coerce").fillna(0) if "shares" in df.columns else 0
+    df["shares"] = pd.to_numeric(df["shares"], errors="coerce").fillna(0) if "shares" in df.columns else 0.0
+    df["weight"] = pd.to_numeric(df["weight"], errors="coerce").fillna(0) if "weight" in df.columns else 0.0
+
     df = df.dropna(subset=["code"]).copy()
     df = df[df["code"].str.fullmatch(r"\d{4}", na=False)]
-    df = df.sort_values(["weight", "shares"], ascending=[False, False]).reset_index(drop=True)
+    df["sort_metric"] = np.where(df["weight"] > 0, df["weight"], df["shares"])
+    df = df.sort_values(["sort_metric", "weight", "shares"], ascending=[False, False, False]).reset_index(drop=True)
     df["signal_date"] = file_info["date"]
     df[f"rank_{etf}"] = np.arange(1, len(df) + 1)
     df[f"is_top10_{etf}"] = df[f"rank_{etf}"] <= 10
@@ -113,7 +117,8 @@ def load_all_etf_holdings() -> dict[str, pd.DataFrame]:
             m[f"shares_{etf}"] = pd.to_numeric(m.get(f"shares_{etf}"), errors="coerce").fillna(0)
             m[f"rank_{etf}"] = pd.to_numeric(m.get(f"rank_{etf}"), errors="coerce")
             m[f"is_top10_{etf}"] = m.get(f"is_top10_{etf}").fillna(False).astype(bool)
-        m["etf_count"] = (m["weight_00981A"] > 0).astype(int) + (m["weight_00992A"] > 0).astype(int)
+            m[f"held_{etf}"] = (m[f"weight_{etf}"] > 0) | (m[f"shares_{etf}"] > 0) | m[f"rank_{etf}"].notna()
+        m["etf_count"] = m["held_00981A"].astype(int) + m["held_00992A"].astype(int)
         m["dual_holding"] = m["etf_count"] == 2
         m["top10_count"] = m["is_top10_00981A"].astype(int) + m["is_top10_00992A"].astype(int)
         m["avg_weight"] = (m["weight_00981A"] + m["weight_00992A"]) / m["etf_count"].replace(0, np.nan)
@@ -132,8 +137,8 @@ def load_all_etf_holdings() -> dict[str, pd.DataFrame]:
             "signal_date", "code", "name",
             "weight_00981A", "weight_00992A", "shares_00981A", "shares_00992A",
             "rank_00981A", "rank_00992A", "is_top10_00981A", "is_top10_00992A",
-            "etf_count", "dual_holding", "top10_count", "avg_weight", "dual_etf_component",
-            "etf_rank", "is_top10",
+            "held_00981A", "held_00992A", "etf_count", "dual_holding", "top10_count",
+            "avg_weight", "dual_etf_component", "etf_rank", "is_top10",
         ]].copy()
     return holdings
 
